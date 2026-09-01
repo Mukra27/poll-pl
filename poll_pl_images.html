@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Kogo zaprosić na rozmowę rekrutacyjną?</title>
+  <style>
+    :root{
+      --card-bg:#fff; --card-border:#e6eefc; --accent:#0b76ef; --muted:#666;
+      --shadow:0 6px 18px rgba(11,118,239,0.06);
+    }
+    body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:#f5f7fb; margin:24px; color:#111; }
+    .card { max-width:820px; margin:auto; padding:20px; background:var(--card-bg); border-radius:10px; border:1px solid var(--card-border); box-shadow:var(--shadow); }
+    h1 { font-size:20px; margin:0 0 8px; }
+    p.lead { margin:4px 0 16px; color:var(--muted); }
+    .options { display:flex; flex-direction:column; gap:10px; margin-top:6px; }
+    .opt { display:flex; gap:12px; align-items:center; padding:10px; border-radius:8px; background:#fbfdff; border:1px solid #f0f4fb; }
+    .opt:hover { box-shadow:0 4px 12px rgba(16,24,40,0.04); transform:translateY(-1px); }
+    .imgwrap { width:72px; height:72px; border-radius:8px; overflow:hidden; flex:0 0 72px; display:flex; align-items:center; justify-content:center; background:#eef6ff; border:1px dashed #dbeffc; position:relative; cursor:pointer; }
+    .imgwrap img { width:100%; height:100%; object-fit:cover; display:block; }
+    .img-placeholder { font-size:12px; color:var(--muted); padding:6px; text-align:center; }
+    .meta { flex:1; display:flex; flex-direction:column; gap:6px; }
+    .label { font-weight:600; font-size:15px; display:flex; gap:8px; align-items:center; }
+    .role { color:#333; font-size:13px; }
+    .radio { margin-left:auto; flex:0 0 auto; }
+    .controls { margin-top:14px; display:flex; gap:12px; align-items:center; }
+    button.primary { background:var(--accent); color:#fff; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; }
+    button.secondary { background:none; color:var(--accent); border:none; padding:8px 10px; cursor:pointer; text-decoration:underline; }
+    button:disabled { opacity:0.55; cursor:default; }
+    .status { margin-top:14px; padding:12px; border-radius:8px; background:#f8fbff; border:1px solid #e6f0ff; color:#063a7a; }
+    .results { margin-top:12px; display:block; }
+    .result-row { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed #f0f4fb; font-size:14px; color:#222; }
+    .small { font-size:13px; color:var(--muted); }
+    input[type="file"] { display:none; }
+    .hint { margin-top:12px; font-size:13px; color:var(--muted); }
+    .export { margin-left:auto; background:#eef7ff; border:1px solid #d8ecff; padding:8px 10px; border-radius:8px; cursor:pointer; color:var(--accent); }
+    @media (max-width:680px){
+      .opt { gap:10px; padding:8px; }
+      .imgwrap { width:56px; height:56px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="card" role="main" aria-labelledby="title">
+    <h1 id="title">Kogo zaprosić na rozmowę rekrutacyjną?</h1>
+    <p class="lead">Wybierz jednego kandydata. Każda przeglądarka/urządzenie może oddać tylko jeden głos (lokalnie).</p>
+
+    <form id="pollForm" aria-describedby="note">
+      <div class="options" id="optionsContainer">
+        <!-- Options inserted by JS -->
+      </div>
+
+      <div class="controls">
+        <button id="voteBtn" class="primary" type="submit">Głosuj</button>
+        <button id="changeBtn" class="secondary" type="button" title="Usuń swój głos na tym urządzeniu">Zmień mój głos</button>
+        <button id="exportBtn" class="export" type="button">Kopiuj wyniki (CSV)</button>
+      </div>
+    </form>
+
+    <div id="status" class="status" style="display:none;" aria-live="polite"></div>
+
+    <div id="results" class="results" style="display:block; margin-top:12px;">
+      <h3 style="margin:0 0 8px 0;">Wyniki lokalne (ta przeglądarka)</h3>
+      <div id="resultsList" class="small" aria-live="polite"></div>
+    </div>
+
+    <p id="note" class="hint">Uwaga: ten sondaż przechowuje głosy i (opcjonalnie) obrazy lokalnie w przeglądarce (localStorage). Głosy nie są wysyłane nigdzie. Aby zbierać odpowiedzi centralnie i wymuszać 1 głos na osobę na różnych urządzeniach, użyj Microsoft Forms lub przygotuj backend serwera (mogę w tym pomóc).</p>
+  </div>
+
+  <script>
+    (function(){
+      // Configuration: candidates (label and internal id)
+      const candidates = [
+        {id:'kasia', label:'Kasia — Junior Programista'},
+        {id:'lukasz', label:'Łukasz — Head of T-Systems'},
+        {id:'arch', label:'XXX — Architekt'},
+        {id:'tester', label:'XXX — Tester'},
+        {id:'ai', label:'XXX — AI Programista'},
+        {id:'data', label:'XXX — Analityk Danych'}
+      ];
+
+      // Storage keys
+      const POLL_KEY = 'poll_votes_pl_v2';
+      const VOTED_KEY = 'poll_voted_pl_v2';
+      const IMG_PREFIX = 'poll_img_pl_v2_';
+      const NOTIFY_KEY = 'poll_notify_pl_v2';
+
+      const optionsContainer = document.getElementById('optionsContainer');
+      const resultsList = document.getElementById('resultsList');
+      const status = document.getElementById('status');
+      const voteBtn = document.getElementById('voteBtn');
+      const changeBtn = document.getElementById('changeBtn');
+      const exportBtn = document.getElementById('exportBtn');
+
+      // Build option rows with image uploader
+      candidates.forEach((c, idx) => {
+        const div = document.createElement('div');
+        div.className = 'opt';
+        div.dataset.candidateId = c.id;
+
+        // image wrapper
+        const imgWrap = document.createElement('div');
+        imgWrap.className = 'imgwrap';
+        imgWrap.title = 'Kliknij, aby dodać/zmienić obrazek dla tej opcji';
+        imgWrap.setAttribute('role','button');
+        imgWrap.setAttribute('aria-label','Dodaj obrazek');
+        // image element or placeholder
+        const imgEl = document.createElement('img');
+        imgEl.alt = c.label;
+        imgEl.style.display = 'none';
+        imgEl.loading = 'lazy';
+        const placeholder = document.createElement('div');
+        placeholder.className = 'img-placeholder';
+        placeholder.innerHTML = 'Dodaj<br>zdjęcie';
+        imgWrap.appendChild(imgEl);
+        imgWrap.appendChild(placeholder);
+
+        // hidden file input
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/*';
+        fileInput.style.display = 'none';
+        fileInput.id = 'file_' + c.id;
+
+        // meta text (label + role)
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const labelRow = document.createElement('div');
+        labelRow.className = 'label';
+        labelRow.textContent = c.label;
+        const roleRow = document.createElement('div');
+        roleRow.className = 'role small';
+        roleRow.textContent = ''; // optional subtitle
+        meta.appendChild(labelRow);
+        meta.appendChild(roleRow);
+
+        // radio
+        const radioWrap = document.createElement('div');
+        radioWrap.className = 'radio';
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'candidate';
+        radio.value = c.id;
+        radio.id = 'radio_' + c.id;
+        radio.setAttribute('aria-label', c.label);
+        radioWrap.appendChild(radio);
+
+        // assemble
+        div.appendChild(imgWrap);
+        div.appendChild(meta);
+        div.appendChild(radioWrap);
+        div.appendChild(fileInput);
+        optionsContainer.appendChild(div);
+
+        // Load saved image if exists
+        const saved = localStorage.getItem(IMG_PREFIX + c.id);
+        if (saved) {
+          imgEl.src = saved;
+          imgEl.style.display = 'block';
+          placeholder.style.display = 'none';
+        }
+
+        // click on imgWrap opens file input
+        imgWrap.addEventListener('click', () => fileInput.click());
+        // handle file selection
+        fileInput.addEventListener('change', (ev) => {
+          const file = ev.target.files && ev.target.files[0];
+          if (!file) return;
+          if (!file.type.startsWith('image/')) { alert('Proszę wybrać obraz.'); return; }
+          const reader = new FileReader();
+          reader.onload = function(e){
+            const dataUrl = e.target.result;
+            try {
+              localStorage.setItem(IMG_PREFIX + c.id, dataUrl);
+            } catch(err) {
+              alert('Nie udało się zapisać obrazka lokalnie (lokalStorage może być pełny).');
+              return;
+            }
+            imgEl.src = dataUrl;
+            imgEl.style.display = 'block';
+            placeholder.style.display = 'none';
+            // notify other tabs
+            notifyChange();
+          };
+          reader.readAsDataURL(file);
+        });
+      });
+
+      // Utility: initialize counts if missing
+      function loadCounts(){
+        try {
+          const raw = localStorage.getItem(POLL_KEY);
+          if (!raw) {
+            const obj = {};
+            candidates.forEach(c => obj[c.id] = 0);
+            localStorage.setItem(POLL_KEY, JSON.stringify(obj));
+            return obj;
+          }
+          return JSON.parse(raw);
+        } catch(e){
+          const obj = {};
+          candidates.forEach(c => obj[c.id] = 0);
+          localStorage.setItem(POLL_KEY, JSON.stringify(obj));
+          return obj;
+        }
+      }
+      function saveCounts(obj){
+        localStorage.setItem(POLL_KEY, JSON.stringify(obj));
+      }
+      function getVoted(){ return localStorage.getItem(VOTED_KEY); }
+      function setVoted(id){ localStorage.setItem(VOTED_KEY, id); }
+      function clearVoted(){ localStorage.removeItem(VOTED_KEY); }
+
+      // Render the results list and status
+      function renderResults(){
+        const counts = loadCounts();
+        resultsList.innerHTML = '';
+        candidates.forEach(c => {
+          const row = document.createElement('div');
+          row.className = 'result-row';
+          const left = document.createElement('div');
+          left.textContent = c.label;
+          const right = document.createElement('div');
+          right.textContent = (counts[c.id] || 0);
+          row.appendChild(left);
+          row.appendChild(right);
+          resultsList.appendChild(row);
+        });
+
+        const voted = getVoted();
+        if (voted) {
+          status.style.display = 'block';
+          const selected = candidates.find(x => x.id === voted);
+          status.innerHTML = `<strong>Dziękujemy — oddałeś głos na:</strong> <br>${selected ? selected.label : voted}`;
+          // pre-select radio and disable form controls (except change)
+          const r = document.getElementById('radio_' + voted);
+          if (r) r.checked = true;
+          disableFormExceptChange();
+        } else {
+          status.style.display = 'none';
+          enableForm();
+        }
+      }
+
+      function disableFormExceptChange(){
+        document.querySelectorAll('input, button').forEach(el => {
+          if (el === changeBtn) return;
+          // file inputs should remain enabled to allow updating images
+          if (el.type === 'file') { /* keep file inputs enabled */ return; }
+          el.disabled = true;
+        });
+        // Allow changeBtn
+        changeBtn.disabled = false;
+      }
+      function enableForm(){
+        document.querySelectorAll('input, button').forEach(el => el.disabled = false);
+      }
+
+      // Vote submission
+      document.getElementById('pollForm').addEventListener('submit', function(e){
+        e.preventDefault();
+        if (getVoted()) { renderResults(); return; }
+        const form = e.target;
+        const selected = form.candidate && form.candidate.value;
+        if (!selected) { alert('Wybierz kandydata.'); return; }
+        const counts = loadCounts();
+        counts[selected] = (counts[selected] || 0) + 1;
+        saveCounts(counts);
+        setVoted(selected);
+        renderResults();
+        notifyChange();
+      });
+
+      // Change vote (remove local vote)
+      changeBtn.addEventListener('click', function(){
+        const voted = getVoted();
+        if (!voted) { alert('Nie oddałeś jeszcze głosu na tym urządzeniu.'); return; }
+        if (!confirm('To usunie Twój głos tylko na tym urządzeniu. Kontynuować?')) return;
+        const counts = loadCounts();
+        if (counts[voted] && counts[voted] > 0) counts[voted] = counts[voted] - 1;
+        saveCounts(counts);
+        clearVoted();
+        // uncheck radio
+        const r = document.getElementById('radio_' + voted);
+        if (r) r.checked = false;
+        renderResults();
+        notifyChange();
+      });
+
+      // Export CSV to clipboard
+      exportBtn.addEventListener('click', function(){
+        const counts = loadCounts();
+        const lines = ['Candidate,Votes'];
+        candidates.forEach(c => lines.push(`"${c.label.replace(/"/g,'""')}",${counts[c.id] || 0}`));
+        const csv = lines.join('\n');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(csv).then(() => {
+            alert('Wyniki skopiowane do schowka jako CSV.');
+          }, () => {
+            openTextWindow(csv);
+          });
+        } else {
+          openTextWindow(csv);
+        }
+      });
+
+      function openTextWindow(text){
+        const w = window.open('', '_blank', 'noopener');
+        w.document.write('<pre>' + text.replace(/</g,'&lt;') + '</pre>');
+        w.document.title = 'Wyniki ankiety (CSV)';
+      }
+
+      // Notify other tabs via BroadcastChannel or localStorage event
+      function notifyChange(){
+        try {
+          if (window.BroadcastChannel) {
+            const bc = new BroadcastChannel('poll_channel_pl_v2');
+            bc.postMessage({type:'changed', ts:Date.now()});
+            bc.close();
+          } else {
+            localStorage.setItem(NOTIFY_KEY, Date.now());
+          }
+        } catch(e){}
+      }
+
+      if (window.BroadcastChannel) {
+        const bc = new BroadcastChannel('poll_channel_pl_v2');
+        bc.onmessage = function(){ renderResults(); };
+        window.addEventListener('beforeunload', ()=> bc.close());
+      } else {
+        window.addEventListener('storage', function(e){
+          if (e.key === NOTIFY_KEY || e.key === POLL_KEY || e.key && e.key.startsWith(IMG_PREFIX)) renderResults();
+        });
+      }
+
+      // Initialize UI
+      (function init(){
+        loadCounts();
+        // pre-select radio if already voted
+        const voted = getVoted();
+        if (voted) {
+          const r = document.getElementById('radio_' + voted);
+          if (r) r.checked = true;
+        }
+        renderResults();
+      })();
+
+    })();
+  </script>
+</body>
+</html>
